@@ -31,8 +31,8 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  stage-package:
-    name: Stage npm package
+  publish-package:
+    name: Publish npm package
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
@@ -68,5 +68,5 @@ jobs:
       - name: Build package
         run: pnpm build
 
-      - name: Stage package for maintainer approval
-        run: npm stage publish --access public --provenance
+      - name: Publish package
+        run: npm publish --access public --provenance

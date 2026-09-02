@@ -49,8 +49,8 @@ pnpm package:pack
 ## Release
 
 The initial package version requires an interactive npm publish with 2FA. Later
-versions use npm staged publishing from a GitHub Actions trusted publisher and
-still require maintainer approval with 2FA.
+versions publish directly from GitHub Actions using npm trusted publishing,
+with OIDC authentication and no manual approval step.
 
 ## License
 
