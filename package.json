@@ -1,6 +1,6 @@
 {
   "name": "@echovisionlab/youtube-audio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Authenticated server-side YouTube audio resolution and byte-range proxying.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
