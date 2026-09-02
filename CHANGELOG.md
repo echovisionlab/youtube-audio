@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/echovisionlab/youtube-audio/compare/v0.1.2...v0.1.3) (2026-09-02)
+
+
+### Bug Fixes
+
+* complete package discovery metadata ([#8](https://github.com/echovisionlab/youtube-audio/issues/8)) ([1d8302e](https://github.com/echovisionlab/youtube-audio/commit/1d8302e7793277a712eb8e5fd17efebaf4a98601))
+
 ## [0.1.2](https://github.com/echovisionlab/youtube-audio/compare/v0.1.1...v0.1.2) (2026-09-02)
 
 
