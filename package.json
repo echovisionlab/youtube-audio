@@ -3,6 +3,7 @@
   "version": "0.1.2",
   "description": "Authenticated server-side YouTube audio resolution and byte-range proxying.",
   "author": "state303 <state303@dsub.io>",
+  "keywords": ["youtube", "audio", "streaming", "byte-range"],
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "exports": {
