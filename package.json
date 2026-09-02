@@ -1,0 +1,61 @@
+{
+  "name": "@echovisionlab/youtube-audio",
+  "version": "0.1.0",
+  "description": "Authenticated server-side YouTube audio resolution and byte-range proxying.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./youtube-js": {
+      "types": "./dist/youtube-js.d.ts",
+      "import": "./dist/youtube-js.js"
+    }
+  },
+  "files": [
+    "dist",
+    "DISCLOSURE.md",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/echovisionlab/youtube-audio.git"
+  },
+  "engines": {
+    "node": "24.19.0"
+  },
+  "packageManager": "pnpm@11.22.0+sha512.1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "build:clean": "node ./scripts/clean-dist.mjs",
+    "package:verify": "node ./scripts/verify-package.mjs",
+    "package:pack": "npm pack --dry-run",
+    "dist:verify-clean": "node ./scripts/verify-dist-clean.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "test:workflow": "node ./scripts/verify-workflow-contract.mjs"
+  },
+  "dependencies": {
+    "youtubei.js": "18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "homepage": "https://github.com/echovisionlab/youtube-audio#readme",
+  "bugs": {
+    "url": "https://github.com/echovisionlab/youtube-audio/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "contentPolicy": {
+    "class": "dual-use"
+  }
+}
