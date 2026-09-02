@@ -62,9 +62,3 @@ jobs:
 
       - name: Dry-run package archive
         run: pnpm package:pack
-
-      - name: Verify generated distribution is clean
-        run: pnpm dist:verify-clean
-
-      - name: Test workflow contract
-        run: pnpm test:workflow

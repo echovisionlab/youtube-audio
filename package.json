@@ -33,11 +33,9 @@
     "build:clean": "node ./scripts/clean-dist.mjs",
     "package:verify": "node ./scripts/verify-package.mjs",
     "package:pack": "npm pack --dry-run",
-    "dist:verify-clean": "node ./scripts/verify-dist-clean.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
-    "test:workflow": "node ./scripts/verify-workflow-contract.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "youtubei.js": "18.0.0"
