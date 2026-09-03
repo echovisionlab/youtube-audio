@@ -1,6 +1,6 @@
 {
   "name": "@echovisionlab/youtube-audio",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Authenticated server-side YouTube audio resolution and byte-range proxying.",
   "author": "state303 <state303@dsub.io>",
   "keywords": [
