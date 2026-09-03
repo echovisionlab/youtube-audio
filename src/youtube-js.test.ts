@@ -68,10 +68,10 @@ describe('YouTube.js provider', () => {
 
     expect(mocks.create).not.toHaveBeenCalled();
     expect(client.getBasicInfo).toHaveBeenCalledWith(VIDEO.videoId, {
-      client: 'IOS',
+      client: 'VISIONOS',
     });
     expect(client.chooseFormat).toHaveBeenCalledWith({
-      client: 'IOS',
+      client: 'VISIONOS',
       format: 'any',
       quality: 'best',
       type: 'audio',
