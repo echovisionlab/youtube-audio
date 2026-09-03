@@ -40,6 +40,7 @@
     "build:clean": "node ./scripts/clean-dist.mjs",
     "package:verify": "node ./scripts/verify-package.mjs",
     "package:pack": "npm pack --dry-run",
+    "smoke:youtube-range": "node ./scripts/smoke-youtube-range.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"

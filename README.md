@@ -34,6 +34,17 @@ copying. See [DISCLOSURE.md](DISCLOSURE.md).
 YouTube and its private APIs can change independently. Keep failures observable
 and review YouTube's terms and applicable law for your integration.
 
+`createYoutubeJsAudioProvider()` is exported separately so browser bundles do
+not accidentally pull the unofficial InnerTube client into application code.
+It rejects live/upcoming video and any source without a finite audio-only byte
+length. The adapter defaults to YouTube.js's `VISIONOS` client because its
+audio-only format currently resolves to a finite direct source and honors
+random-access reads at the beginning, middle, and end of the file in the live
+smoke check. Callers may override `client` when required. YouTube.js and the
+upstream private API can change independently; keep
+resolution failures observable and update this package rather than adding
+fallback scraping to the web application.
+
 ## Development
 
 ```sh
@@ -44,6 +55,7 @@ pnpm test:coverage
 pnpm build
 pnpm package:verify
 pnpm package:pack
+YOUTUBE_VIDEO_ID=<authorized-video-id> pnpm smoke:youtube-range
 ```
 
 ## Release

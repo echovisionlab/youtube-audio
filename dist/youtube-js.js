@@ -2,7 +2,10 @@ import { Innertube } from 'youtubei.js';
 import { YoutubeAudioError } from './errors.js';
 export function createYoutubeJsAudioProvider(options = {}) {
     let clientPromise;
-    const clientType = options.client ?? 'IOS';
+    // The provider feeds a random-access browser transcoder. VISIONOS currently
+    // returns direct audio sources that honor non-zero and end-of-file ranges;
+    // IOS sources can resolve successfully while rejecting those reads with 403.
+    const clientType = options.client ?? 'VISIONOS';
     return {
         async resolve(video, signal) {
             throwIfAborted(signal);
