@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/echovisionlab/youtube-audio/compare/v0.1.3...v0.1.4) (2026-09-03)
+
+
+### Bug Fixes
+
+* restore random access YouTube audio sources ([#10](https://github.com/echovisionlab/youtube-audio/issues/10)) ([271a6a4](https://github.com/echovisionlab/youtube-audio/commit/271a6a40ee1f8d81c7752023f85e6cf0266ca3d3))
+
 ## [0.1.3](https://github.com/echovisionlab/youtube-audio/compare/v0.1.2...v0.1.3) (2026-09-02)
 
 
