@@ -81,6 +81,20 @@ describe('YouTube.js provider', () => {
     expect(second).toEqual(first);
   });
 
+  it('retries client initialization after a transient failure', async () => {
+    const client = fakeClient();
+    mocks.create
+      .mockRejectedValueOnce(new Error('temporary session failure'))
+      .mockResolvedValueOnce(client);
+    const provider = createYoutubeJsAudioProvider({ client: 'VISIONOS' });
+
+    await expect(provider.resolve(VIDEO)).rejects.toMatchObject({
+      code: 'UPSTREAM_FAILURE',
+    });
+    await expect(provider.resolve(VIDEO)).resolves.toMatchObject({ size: 4 });
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to YTKIDS and accepts it only after head, middle, and tail ranges succeed', async () => {
     const client = fakeClient();
     client.getBasicInfo.mockImplementation(async (_videoId: string, options: { client: string }) => {

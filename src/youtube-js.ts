@@ -19,45 +19,34 @@ export interface CreateYoutubeJsAudioProviderOptions {
   readonly format?: string;
 }
 
+const DEFAULT_CLIENT_TYPES: readonly Types.InnerTubeClient[] = [
+  'VISIONOS',
+  'YTKIDS',
+];
+
 export function createYoutubeJsAudioProvider(
   options: CreateYoutubeJsAudioProviderOptions = {},
 ): YoutubeAudioProvider {
   let clientPromise: Promise<Innertube> | undefined;
   const clientTypes: readonly Types.InnerTubeClient[] = options.client === undefined
-    ? ['VISIONOS', 'YTKIDS']
+    ? DEFAULT_CLIENT_TYPES
     : [options.client];
   const fetcher = options.fetcher ?? fetch;
 
   return {
     async resolve(video, signal) {
       throwIfAborted(signal);
-      const innertube = await getInnertube();
+      let innertube: Innertube;
+      try {
+        innertube = await getInnertube();
+      } catch (error) {
+        rethrowYoutubeJsError(error, signal);
+      }
       throwIfAborted(signal);
       let lastError: unknown;
       for (const clientType of clientTypes) {
         try {
-          const info = await innertube.getBasicInfo(
-            video.videoId,
-            videoInfoOptions(clientType),
-          );
-          throwIfAborted(signal);
-          if (info.basic_info.is_live || info.basic_info.is_upcoming) {
-            throw new YoutubeAudioError(
-              'UNSUPPORTED_VIDEO',
-              'Live and upcoming YouTube videos are not supported.',
-            );
-          }
-          const format = info.chooseFormat({
-            ...videoInfoOptions(clientType),
-            format: options.format ?? 'any',
-            quality: 'best',
-            type: 'audio',
-          });
-          format.url = await decipherFormat(format, innertube);
-          throwIfAborted(signal);
-          const source = toUpstreamSource(video, info.basic_info.title, format);
-          await validateRandomAccessSource(source, fetcher, signal);
-          return source;
+          return await resolveWithClient(innertube, video, clientType, signal);
         } catch (error) {
           throwIfAborted(signal);
           lastError = error;
@@ -68,10 +57,46 @@ export function createYoutubeJsAudioProvider(
   };
 
   function getInnertube(): Promise<Innertube> {
-    clientPromise ??= options.innertube === undefined
-      ? Innertube.create(options.innertubeConfig)
-      : Promise.resolve(options.innertube);
+    if (clientPromise === undefined) {
+      const creating = options.innertube === undefined
+        ? Innertube.create(options.innertubeConfig)
+        : Promise.resolve(options.innertube);
+      clientPromise = creating.catch((error: unknown) => {
+        // A transient initialization failure must not poison this provider for
+        // every later request or retain the rejected promise indefinitely.
+        clientPromise = undefined;
+        throw error;
+      });
+    }
     return clientPromise;
+  }
+
+  async function resolveWithClient(
+    innertube: Innertube,
+    video: YoutubeVideoReference,
+    clientType: Types.InnerTubeClient,
+    signal?: AbortSignal,
+  ): Promise<YoutubeAudioUpstreamSource> {
+    const infoOptions = videoInfoOptions(clientType);
+    const info = await innertube.getBasicInfo(video.videoId, infoOptions);
+    throwIfAborted(signal);
+    if (info.basic_info.is_live || info.basic_info.is_upcoming) {
+      throw new YoutubeAudioError(
+        'UNSUPPORTED_VIDEO',
+        'Live and upcoming YouTube videos are not supported.',
+      );
+    }
+    const format = info.chooseFormat({
+      ...infoOptions,
+      format: options.format ?? 'any',
+      quality: 'best',
+      type: 'audio',
+    });
+    format.url = await decipherFormat(format, innertube);
+    throwIfAborted(signal);
+    const source = toUpstreamSource(video, info.basic_info.title, format);
+    await validateRandomAccessSource(source, fetcher, signal);
+    return source;
   }
 }
 
@@ -96,7 +121,11 @@ async function validateRandomAccessSource(
   fetcher: typeof fetch,
   signal?: AbortSignal,
 ): Promise<void> {
-  const positions = new Set([0, Math.floor((source.size - 1) / 2), source.size - 1]);
+  const positions = new Set([
+    0,
+    Math.floor((source.size - 1) / 2),
+    source.size - 1,
+  ]);
   for (const position of positions) {
     throwIfAborted(signal);
     const response = await fetcher(source.url, {
@@ -104,7 +133,11 @@ async function validateRandomAccessSource(
       ...(signal === undefined ? {} : { signal }),
     });
     const expectedRange = `bytes ${position}-${position}/${source.size}`;
-    const valid = response.status === 206 && response.headers.get('content-range') === expectedRange;
+    const valid =
+      response.status === 206 &&
+      response.headers.get('content-range') === expectedRange;
+    // The probe needs headers only; cancelling promptly avoids retaining an
+    // upstream response stream when clients return more than the requested byte.
     await response.body?.cancel().catch(() => undefined);
     if (!valid) {
       throw new YoutubeAudioError(
