@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  platform: { shim: { eval: vi.fn() } },
 }));
 
 vi.mock('youtubei.js', () => ({
   Innertube: class Innertube {
     static create = mocks.create;
   },
+  Platform: mocks.platform,
 }));
 
 import { YoutubeAudioError } from './errors.js';
@@ -18,9 +20,27 @@ const VIDEO = Object.freeze({
   videoId: 'dQw4w9WgXcQ',
 });
 
+const fetcher = vi.fn<typeof fetch>();
+
 beforeEach(() => {
   mocks.create.mockReset();
+  mocks.platform.shim.eval = vi.fn();
+  fetcher.mockReset();
+  fetcher.mockImplementation(async (_input, init) => {
+    const requested = new Headers(init?.headers).get('range');
+    const match = /^bytes=(\d+)-(\d+)$/.exec(requested ?? '');
+    if (match === null) {
+      return new Response(null, { status: 400 });
+    }
+    return new Response(new Uint8Array([1]), {
+      headers: { 'Content-Range': `bytes ${match[1]}-${match[2]}/4` },
+      status: 206,
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('YouTube.js provider', () => {
   it('lazily creates one client and resolves a finite audio-only source', async () => {
@@ -47,6 +67,7 @@ describe('YouTube.js provider', () => {
       type: 'audio',
     });
     expect(client.decipher).toHaveBeenCalledWith(client.session.player);
+    expect(fetcher).toHaveBeenCalledTimes(6);
     expect(first).toEqual({
       contentType: 'audio/mp4',
       expiresAt: 2_000_000_000_000,
@@ -58,6 +79,68 @@ describe('YouTube.js provider', () => {
     });
     expect(Object.isFrozen(first)).toBe(true);
     expect(second).toEqual(first);
+  });
+
+  it('falls back to YTKIDS and accepts it only after head, middle, and tail ranges succeed', async () => {
+    const client = fakeClient();
+    client.getBasicInfo.mockImplementation(async (_videoId: string, options: { client: string }) => {
+      if (options.client === 'VISIONOS') {
+        throw new Error('Streaming data not available');
+      }
+      return {
+        basic_info: { is_live: false, is_upcoming: false, title: 'A / title' },
+        chooseFormat: client.chooseFormat,
+      };
+    });
+    mocks.create.mockResolvedValue(client);
+
+    await expect(createYoutubeJsAudioProvider().resolve(VIDEO)).resolves.toMatchObject({
+      size: 4,
+      title: 'A / title',
+    });
+
+    expect(client.getBasicInfo.mock.calls.map(([, options]) => options)).toEqual([
+      { client: 'VISIONOS' },
+      { client: 'YTKIDS' },
+    ]);
+    expect(fetcher.mock.calls.map(([, init]) => new Headers(init?.headers).get('range'))).toEqual([
+      'bytes=0-0',
+      'bytes=1-1',
+      'bytes=3-3',
+    ]);
+  });
+
+  it('falls back when a resolved source cannot serve a non-zero range', async () => {
+    const client = fakeClient();
+    mocks.create.mockResolvedValue(client);
+    let visionProbe = true;
+    fetcher.mockImplementation(async (_input, init) => {
+      const requested = new Headers(init?.headers).get('range')!;
+      if (visionProbe && requested === 'bytes=1-1') {
+        visionProbe = false;
+        return new Response(null, { status: 403 });
+      }
+      const [, start, end] = /^bytes=(\d+)-(\d+)$/.exec(requested)!;
+      return new Response(new Uint8Array([1]), {
+        headers: { 'Content-Range': `bytes ${start}-${end}/4` },
+        status: 206,
+      });
+    });
+
+    await expect(createYoutubeJsAudioProvider().resolve(VIDEO)).resolves.toMatchObject({ size: 4 });
+    expect(client.getBasicInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('installs the YouTube.js evaluator only when deciphering requires it', async () => {
+    const client = fakeClient();
+    client.decipher
+      .mockRejectedValueOnce(new Error('you must provide your own JavaScript evaluator'))
+      .mockResolvedValueOnce('https://rr1.googlevideo.com/videoplayback?expire=2000000000');
+
+    await createYoutubeJsAudioProvider({ client: 'YTKIDS', innertube: client as never }).resolve(VIDEO);
+
+    expect(mocks.platform.shim.eval).toBeTypeOf('function');
+    expect(client.decipher).toHaveBeenCalledTimes(2);
   });
 
   it('uses an application-owned client and default format options', async () => {
@@ -220,7 +303,7 @@ function fakeClient(
   const decipher = vi.fn(async () => format.url ?? '');
   const chooseFormat = vi.fn(() => ({ ...format, decipher }));
   return {
-    getBasicInfo: vi.fn(async () => {
+    getBasicInfo: vi.fn(async (_videoId: string, _options: { client: string }) => {
       if (failure !== undefined) throw failure;
       return {
         basic_info: {

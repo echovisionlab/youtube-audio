@@ -1,35 +1,42 @@
-import { Innertube } from 'youtubei.js';
+import { Innertube, Platform } from 'youtubei.js';
 import { YoutubeAudioError } from './errors.js';
 export function createYoutubeJsAudioProvider(options = {}) {
     let clientPromise;
-    // The provider feeds a random-access browser transcoder. VISIONOS currently
-    // returns direct audio sources that honor non-zero and end-of-file ranges;
-    // IOS sources can resolve successfully while rejecting those reads with 403.
-    const clientType = options.client ?? 'VISIONOS';
+    const clientTypes = options.client === undefined
+        ? ['VISIONOS', 'YTKIDS']
+        : [options.client];
+    const fetcher = options.fetcher ?? fetch;
     return {
         async resolve(video, signal) {
             throwIfAborted(signal);
             const innertube = await getInnertube();
             throwIfAborted(signal);
-            try {
-                const info = await innertube.getBasicInfo(video.videoId, videoInfoOptions(clientType));
-                throwIfAborted(signal);
-                if (info.basic_info.is_live || info.basic_info.is_upcoming) {
-                    throw new YoutubeAudioError('UNSUPPORTED_VIDEO', 'Live and upcoming YouTube videos are not supported.');
+            let lastError;
+            for (const clientType of clientTypes) {
+                try {
+                    const info = await innertube.getBasicInfo(video.videoId, videoInfoOptions(clientType));
+                    throwIfAborted(signal);
+                    if (info.basic_info.is_live || info.basic_info.is_upcoming) {
+                        throw new YoutubeAudioError('UNSUPPORTED_VIDEO', 'Live and upcoming YouTube videos are not supported.');
+                    }
+                    const format = info.chooseFormat({
+                        ...videoInfoOptions(clientType),
+                        format: options.format ?? 'any',
+                        quality: 'best',
+                        type: 'audio',
+                    });
+                    format.url = await decipherFormat(format, innertube);
+                    throwIfAborted(signal);
+                    const source = toUpstreamSource(video, info.basic_info.title, format);
+                    await validateRandomAccessSource(source, fetcher, signal);
+                    return source;
                 }
-                const format = info.chooseFormat({
-                    ...videoInfoOptions(clientType),
-                    format: options.format ?? 'any',
-                    quality: 'best',
-                    type: 'audio',
-                });
-                format.url = await format.decipher(innertube.session.player);
-                throwIfAborted(signal);
-                return toUpstreamSource(video, info.basic_info.title, format);
+                catch (error) {
+                    throwIfAborted(signal);
+                    lastError = error;
+                }
             }
-            catch (error) {
-                rethrowYoutubeJsError(error, signal);
-            }
+            rethrowYoutubeJsError(lastError, signal);
         },
     };
     function getInnertube() {
@@ -38,6 +45,37 @@ export function createYoutubeJsAudioProvider(options = {}) {
             : Promise.resolve(options.innertube);
         return clientPromise;
     }
+}
+async function decipherFormat(format, innertube) {
+    try {
+        return await format.decipher(innertube.session.player);
+    }
+    catch (error) {
+        if (!isMissingJavascriptEvaluator(error)) {
+            throw error;
+        }
+        Platform.shim.eval = async (data) => new Function(data.output)();
+        return format.decipher(innertube.session.player);
+    }
+}
+async function validateRandomAccessSource(source, fetcher, signal) {
+    const positions = new Set([0, Math.floor((source.size - 1) / 2), source.size - 1]);
+    for (const position of positions) {
+        throwIfAborted(signal);
+        const response = await fetcher(source.url, {
+            headers: { Range: `bytes=${position}-${position}` },
+            ...(signal === undefined ? {} : { signal }),
+        });
+        const expectedRange = `bytes ${position}-${position}/${source.size}`;
+        const valid = response.status === 206 && response.headers.get('content-range') === expectedRange;
+        await response.body?.cancel().catch(() => undefined);
+        if (!valid) {
+            throw new YoutubeAudioError('UPSTREAM_FAILURE', 'YouTube did not provide a stable random-access audio source.');
+        }
+    }
+}
+function isMissingJavascriptEvaluator(error) {
+    return error instanceof Error && error.message.includes('provide your own JavaScript evaluator');
 }
 function toUpstreamSource(video, title, format) {
     if (typeof title !== 'string' ||

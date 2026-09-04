@@ -37,11 +37,12 @@ and review YouTube's terms and applicable law for your integration.
 `createYoutubeJsAudioProvider()` is exported separately so browser bundles do
 not accidentally pull the unofficial InnerTube client into application code.
 It rejects live/upcoming video and any source without a finite audio-only byte
-length. The adapter defaults to YouTube.js's `VISIONOS` client because its
-audio-only format currently resolves to a finite direct source and honors
-random-access reads at the beginning, middle, and end of the file in the live
-smoke check. Callers may override `client` when required. YouTube.js and the
-upstream private API can change independently; keep
+length. The adapter tries the `VISIONOS` and `YTKIDS` YouTube.js clients in
+order, accepting a source only after exact one-byte reads succeed at the
+beginning, middle, and end of the file. This keeps source preparation bounded
+for long public videos while rejecting URLs that resolve but later fail random
+access. Callers may override `client` when required. YouTube.js and the upstream
+private API can change independently; keep
 resolution failures observable and update this package rather than adding
 fallback scraping to the web application.
 
