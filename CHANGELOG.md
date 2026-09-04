@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/echovisionlab/youtube-audio/compare/v0.1.4...v0.1.5) (2026-09-04)
+
+
+### Bug Fixes
+
+* validate fallback YouTube audio sources ([#12](https://github.com/echovisionlab/youtube-audio/issues/12)) ([a61cc95](https://github.com/echovisionlab/youtube-audio/commit/a61cc9511c83ad85139d79655507b6f831cd7b6c))
+
 ## [0.1.4](https://github.com/echovisionlab/youtube-audio/compare/v0.1.3...v0.1.4) (2026-09-03)
 
 
