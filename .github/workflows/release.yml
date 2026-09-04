@@ -70,3 +70,36 @@ jobs:
 
       - name: Publish package
         run: npm publish --access public --provenance
+
+      - name: Verify the public package artifact
+        run: |
+          set -euo pipefail
+
+          package_name="$(node --input-type=module -e "import packageJson from './package.json' with { type: 'json' }; process.stdout.write(packageJson.name)")"
+          package_version="$(node --input-type=module -e "import packageJson from './package.json' with { type: 'json' }; process.stdout.write(packageJson.version)")"
+          artifact_directory="$(mktemp -d)"
+          trap 'rm -rf "${artifact_directory}"' EXIT
+
+          for attempt in $(seq 1 30); do
+            metadata="$(npm view "${package_name}@${package_version}" dist.tarball dist.integrity --json 2>/dev/null || true)"
+            tarball="$(jq -r '."dist.tarball" // empty' <<<"${metadata}")"
+            expected_integrity="$(jq -r '."dist.integrity" // empty' <<<"${metadata}")"
+
+            if [ -n "${tarball}" ] && [ -n "${expected_integrity}" ] &&
+               curl --fail --silent --show-error --location \
+                 --output "${artifact_directory}/package.tgz" \
+                 "${tarball}?release-verification=${GITHUB_RUN_ATTEMPT}-${attempt}"; then
+              actual_integrity="sha512-$(openssl dgst -sha512 -binary "${artifact_directory}/package.tgz" | openssl base64 -A)"
+              [ "${actual_integrity}" = "${expected_integrity}" ] || {
+                echo "Published tarball integrity does not match npm metadata." >&2
+                exit 1
+              }
+              echo "Verified ${package_name}@${package_version} from the public npm registry."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Published npm tarball did not become publicly readable." >&2
+          exit 1
