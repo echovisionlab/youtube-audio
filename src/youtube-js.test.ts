@@ -155,6 +155,40 @@ describe('YouTube.js provider', () => {
 
     expect(mocks.platform.shim.eval).toBeTypeOf('function');
     expect(client.decipher).toHaveBeenCalledTimes(2);
+    await expect(
+      mocks.platform.shim.eval({ output: 'return 42;' }),
+    ).resolves.toBe(42);
+  });
+
+  it('does not replace an unrelated decipher failure', async () => {
+    const client = fakeClient();
+    client.decipher.mockRejectedValue(new Error('player unavailable'));
+
+    await expect(
+      createYoutubeJsAudioProvider({ client: 'VISIONOS', innertube: client as never }).resolve(VIDEO),
+    ).rejects.toMatchObject({ code: 'UPSTREAM_FAILURE' });
+    expect(mocks.platform.shim.eval).not.toHaveBeenCalled();
+  });
+
+  it('passes cancellation to range probes and tolerates body cancellation failure', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn().mockRejectedValue(new Error('body already closed'));
+    fetcher.mockResolvedValue({
+      body: { cancel },
+      headers: new Headers({ 'Content-Range': 'bytes 0-0/1' }),
+      status: 206,
+    } as unknown as Response);
+
+    await createYoutubeJsAudioProvider({
+      client: 'VISIONOS',
+      innertube: fakeClient({ content_length: 1 }) as never,
+    }).resolve(VIDEO, controller.signal);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('uses an application-owned client and default format options', async () => {
