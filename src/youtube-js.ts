@@ -1,4 +1,4 @@
-import { Innertube, type Types } from 'youtubei.js';
+import { Innertube, Platform, type Types } from 'youtubei.js';
 import type {
   YoutubeAudioProvider,
   YoutubeAudioUpstreamSource,
@@ -13,57 +13,143 @@ export interface CreateYoutubeJsAudioProviderOptions {
   readonly innertubeConfig?: Types.InnerTubeConfig;
   /** Optional YouTube client override. */
   readonly client?: Types.InnerTubeClient;
+  /** Test seam for validating random-access media reads. */
+  readonly fetcher?: typeof fetch;
   /** Optional container preference such as `m4a` or `webm`. */
   readonly format?: string;
 }
+
+const DEFAULT_CLIENT_TYPES: readonly Types.InnerTubeClient[] = [
+  'VISIONOS',
+  'YTKIDS',
+];
 
 export function createYoutubeJsAudioProvider(
   options: CreateYoutubeJsAudioProviderOptions = {},
 ): YoutubeAudioProvider {
   let clientPromise: Promise<Innertube> | undefined;
-  // The provider feeds a random-access browser transcoder. VISIONOS currently
-  // returns direct audio sources that honor non-zero and end-of-file ranges;
-  // IOS sources can resolve successfully while rejecting those reads with 403.
-  const clientType = options.client ?? 'VISIONOS';
+  const clientTypes: readonly Types.InnerTubeClient[] = options.client === undefined
+    ? DEFAULT_CLIENT_TYPES
+    : [options.client];
+  const fetcher = options.fetcher ?? fetch;
 
   return {
     async resolve(video, signal) {
       throwIfAborted(signal);
-      const innertube = await getInnertube();
-      throwIfAborted(signal);
+      let innertube: Innertube;
       try {
-        const info = await innertube.getBasicInfo(
-          video.videoId,
-          videoInfoOptions(clientType),
-        );
-        throwIfAborted(signal);
-        if (info.basic_info.is_live || info.basic_info.is_upcoming) {
-          throw new YoutubeAudioError(
-            'UNSUPPORTED_VIDEO',
-            'Live and upcoming YouTube videos are not supported.',
-          );
-        }
-        const format = info.chooseFormat({
-          ...videoInfoOptions(clientType),
-          format: options.format ?? 'any',
-          quality: 'best',
-          type: 'audio',
-        });
-        format.url = await format.decipher(innertube.session.player);
-        throwIfAborted(signal);
-        return toUpstreamSource(video, info.basic_info.title, format);
+        innertube = await getInnertube();
       } catch (error) {
         rethrowYoutubeJsError(error, signal);
       }
+      throwIfAborted(signal);
+      let lastError: unknown;
+      for (const clientType of clientTypes) {
+        try {
+          return await resolveWithClient(innertube, video, clientType, signal);
+        } catch (error) {
+          throwIfAborted(signal);
+          lastError = error;
+        }
+      }
+      rethrowYoutubeJsError(lastError, signal);
     },
   };
 
   function getInnertube(): Promise<Innertube> {
-    clientPromise ??= options.innertube === undefined
-      ? Innertube.create(options.innertubeConfig)
-      : Promise.resolve(options.innertube);
+    if (clientPromise === undefined) {
+      const creating = options.innertube === undefined
+        ? Innertube.create(options.innertubeConfig)
+        : Promise.resolve(options.innertube);
+      clientPromise = creating.catch((error: unknown) => {
+        // A transient initialization failure must not poison this provider for
+        // every later request or retain the rejected promise indefinitely.
+        clientPromise = undefined;
+        throw error;
+      });
+    }
     return clientPromise;
   }
+
+  async function resolveWithClient(
+    innertube: Innertube,
+    video: YoutubeVideoReference,
+    clientType: Types.InnerTubeClient,
+    signal?: AbortSignal,
+  ): Promise<YoutubeAudioUpstreamSource> {
+    const infoOptions = videoInfoOptions(clientType);
+    const info = await innertube.getBasicInfo(video.videoId, infoOptions);
+    throwIfAborted(signal);
+    if (info.basic_info.is_live || info.basic_info.is_upcoming) {
+      throw new YoutubeAudioError(
+        'UNSUPPORTED_VIDEO',
+        'Live and upcoming YouTube videos are not supported.',
+      );
+    }
+    const format = info.chooseFormat({
+      ...infoOptions,
+      format: options.format ?? 'any',
+      quality: 'best',
+      type: 'audio',
+    });
+    format.url = await decipherFormat(format, innertube);
+    throwIfAborted(signal);
+    const source = toUpstreamSource(video, info.basic_info.title, format);
+    await validateRandomAccessSource(source, fetcher, signal);
+    return source;
+  }
+}
+
+async function decipherFormat(
+  format: Awaited<ReturnType<Innertube['getStreamingData']>>,
+  innertube: Innertube,
+): Promise<string> {
+  try {
+    return await format.decipher(innertube.session.player);
+  } catch (error) {
+    if (!isMissingJavascriptEvaluator(error)) {
+      throw error;
+    }
+    Platform.shim.eval = async (data: Types.BuildScriptResult) =>
+      new Function(data.output)();
+    return format.decipher(innertube.session.player);
+  }
+}
+
+async function validateRandomAccessSource(
+  source: YoutubeAudioUpstreamSource,
+  fetcher: typeof fetch,
+  signal?: AbortSignal,
+): Promise<void> {
+  const positions = new Set([
+    0,
+    Math.floor((source.size - 1) / 2),
+    source.size - 1,
+  ]);
+  for (const position of positions) {
+    throwIfAborted(signal);
+    const response = await fetcher(source.url, {
+      headers: { Range: `bytes=${position}-${position}` },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    const expectedRange = `bytes ${position}-${position}/${source.size}`;
+    const valid =
+      response.status === 206 &&
+      response.headers.get('content-range') === expectedRange;
+    // The probe needs headers only; cancelling promptly avoids retaining an
+    // upstream response stream when clients return more than the requested byte.
+    await response.body?.cancel().catch(() => undefined);
+    if (!valid) {
+      throw new YoutubeAudioError(
+        'UPSTREAM_FAILURE',
+        'YouTube did not provide a stable random-access audio source.',
+      );
+    }
+  }
+}
+
+function isMissingJavascriptEvaluator(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('provide your own JavaScript evaluator');
 }
 
 function toUpstreamSource(

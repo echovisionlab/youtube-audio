@@ -7,6 +7,8 @@ export interface CreateYoutubeJsAudioProviderOptions {
     readonly innertubeConfig?: Types.InnerTubeConfig;
     /** Optional YouTube client override. */
     readonly client?: Types.InnerTubeClient;
+    /** Test seam for validating random-access media reads. */
+    readonly fetcher?: typeof fetch;
     /** Optional container preference such as `m4a` or `webm`. */
     readonly format?: string;
 }
