@@ -23,16 +23,7 @@ const service = createYoutubeAudioService({
 });
 ```
 
-## Responsible use
-
-This package is dual-use software, not a public download service. Access must
-be restricted to signed-in users. Use it only for media you own or are
-authorized to acquire and process, and obtain all required copyright and rights
-clearances. Echo Vision Lab does not encourage infringement or unauthorized
-copying. See [DISCLOSURE.md](DISCLOSURE.md).
-
-YouTube and its private APIs can change independently. Keep failures observable
-and review YouTube's terms and applicable law for your integration.
+See [DISCLOSURE.md](DISCLOSURE.md) for access and use conditions.
 
 `createYoutubeJsAudioProvider()` is exported separately so browser bundles do
 not accidentally pull the unofficial InnerTube client into application code.
