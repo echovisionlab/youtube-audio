@@ -249,9 +249,6 @@ function waitForCaller<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>
     let settled = false;
     const cleanup = () => signal.removeEventListener('abort', onAbort);
     const onAbort = () => {
-      if (settled) {
-        return;
-      }
       settled = true;
       cleanup();
       reject(abortedError());
@@ -275,7 +272,8 @@ function waitForCaller<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>
         reject(error);
       },
     );
-    // Close the narrow race between the initial check and listener setup.
+    // Aborts before listener setup do not replay the event. Check only after
+    // attaching both promise handlers so a late rejection remains handled.
     if (signal.aborted) {
       onAbort();
     }

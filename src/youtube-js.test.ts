@@ -87,11 +87,12 @@ describe('YouTube.js provider', () => {
       .mockRejectedValueOnce(new Error('temporary session failure'))
       .mockResolvedValueOnce(client);
     const provider = createYoutubeJsAudioProvider({ client: 'VISIONOS' });
+    const signal = new AbortController().signal;
 
-    await expect(provider.resolve(VIDEO)).rejects.toMatchObject({
+    await expect(provider.resolve(VIDEO, signal)).rejects.toMatchObject({
       code: 'UPSTREAM_FAILURE',
     });
-    await expect(provider.resolve(VIDEO)).resolves.toMatchObject({ size: 4 });
+    await expect(provider.resolve(VIDEO, signal)).resolves.toMatchObject({ size: 4 });
     expect(mocks.create).toHaveBeenCalledTimes(2);
   });
 
