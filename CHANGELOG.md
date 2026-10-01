@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/echovisionlab/youtube-audio/compare/v0.1.5...v0.1.6) (2026-10-01)
+
+
+### Bug Fixes
+
+* clean up canceled YouTube audio operations ([#16](https://github.com/echovisionlab/youtube-audio/issues/16)) ([62ee59a](https://github.com/echovisionlab/youtube-audio/commit/62ee59a171706d8f3917e48fac0013922cbc1fb5))
+
 ## [0.1.5](https://github.com/echovisionlab/youtube-audio/compare/v0.1.4...v0.1.5) (2026-09-04)
 
 
