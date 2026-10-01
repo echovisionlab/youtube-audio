@@ -333,6 +333,97 @@ describe('YouTube.js provider', () => {
       ),
     ).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
   });
+
+  it('lets one caller abort its wait without cancelling shared client creation', async () => {
+    const creation = deferred<ReturnType<typeof fakeClient>>();
+    const client = fakeClient();
+    mocks.create.mockReturnValue(creation.promise);
+    const provider = createYoutubeJsAudioProvider({ client: 'VISIONOS' });
+    const cancelled = new AbortController();
+    const cancelledRequest = provider.resolve(VIDEO, cancelled.signal);
+    const activeRequest = provider.resolve(VIDEO);
+
+    expect(mocks.create).toHaveBeenCalledOnce();
+    cancelled.abort();
+    await expect(cancelledRequest).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+
+    creation.resolve(client);
+    await expect(activeRequest).resolves.toMatchObject({ size: 4 });
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(client.getBasicInfo).toHaveBeenCalledOnce();
+  });
+
+  it('settles a cancelled metadata wait while another caller completes', async () => {
+    const client = fakeClient();
+    const firstInfo = deferred<Awaited<ReturnType<typeof client.getBasicInfo>>>();
+    client.getBasicInfo
+      .mockImplementationOnce(() => firstInfo.promise)
+      .mockImplementationOnce(async () => ({
+        basic_info: { is_live: false, is_upcoming: false, title: 'A / title' },
+        chooseFormat: client.chooseFormat,
+      }));
+    const provider = createYoutubeJsAudioProvider({
+      client: 'VISIONOS',
+      innertube: client as never,
+    });
+    const cancelled = new AbortController();
+    const cancelledRequest = provider.resolve(VIDEO, cancelled.signal);
+    await vi.waitFor(() => expect(client.getBasicInfo).toHaveBeenCalledOnce());
+    const activeRequest = provider.resolve(VIDEO);
+
+    await vi.waitFor(() => expect(client.getBasicInfo).toHaveBeenCalledTimes(2));
+    cancelled.abort();
+    await expect(cancelledRequest).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    firstInfo.resolve({
+      basic_info: { is_live: false, is_upcoming: false, title: 'A / title' },
+      chooseFormat: client.chooseFormat,
+    });
+    await expect(activeRequest).resolves.toMatchObject({ size: 4 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('settles a cancelled asynchronous decipher wait', async () => {
+    const client = fakeClient();
+    const decipher = deferred<string>();
+    client.decipher.mockReturnValueOnce(decipher.promise);
+    const provider = createYoutubeJsAudioProvider({
+      client: 'VISIONOS',
+      innertube: client as never,
+    });
+    const controller = new AbortController();
+    const pending = provider.resolve(VIDEO, controller.signal);
+    await vi.waitFor(() => expect(client.decipher).toHaveBeenCalledOnce());
+
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    decipher.resolve('https://rr1.googlevideo.com/videoplayback?expire=2000000000');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('handles a late metadata rejection when the call aborts before race setup', async () => {
+    const client = fakeClient();
+    const metadata = deferred<Awaited<ReturnType<typeof client.getBasicInfo>>>();
+    const controller = new AbortController();
+    const unhandledRejection = vi.fn();
+    client.getBasicInfo.mockImplementationOnce(() => {
+      controller.abort();
+      return metadata.promise;
+    });
+    process.on('unhandledRejection', unhandledRejection);
+
+    try {
+      const pending = createYoutubeJsAudioProvider({
+        client: 'VISIONOS',
+        innertube: client as never,
+      }).resolve(VIDEO, controller.signal);
+      await expect(pending).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+      metadata.reject(new Error('late metadata failure'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandledRejection);
+    }
+  });
 });
 
 function fakeClient(
@@ -367,4 +458,14 @@ function fakeClient(
     decipher,
     session: { player: { id: 'player' } },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }

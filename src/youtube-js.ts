@@ -38,7 +38,7 @@ export function createYoutubeJsAudioProvider(
       throwIfAborted(signal);
       let innertube: Innertube;
       try {
-        innertube = await getInnertube();
+        innertube = await waitForCaller(getInnertube(), signal);
       } catch (error) {
         rethrowYoutubeJsError(error, signal);
       }
@@ -78,7 +78,10 @@ export function createYoutubeJsAudioProvider(
     signal?: AbortSignal,
   ): Promise<YoutubeAudioUpstreamSource> {
     const infoOptions = videoInfoOptions(clientType);
-    const info = await innertube.getBasicInfo(video.videoId, infoOptions);
+    const info = await waitForCaller(
+      innertube.getBasicInfo(video.videoId, infoOptions),
+      signal,
+    );
     throwIfAborted(signal);
     if (info.basic_info.is_live || info.basic_info.is_upcoming) {
       throw new YoutubeAudioError(
@@ -92,7 +95,10 @@ export function createYoutubeJsAudioProvider(
       quality: 'best',
       type: 'audio',
     });
-    format.url = await decipherFormat(format, innertube);
+    format.url = await waitForCaller(
+      decipherFormat(format, innertube, signal),
+      signal,
+    );
     throwIfAborted(signal);
     const source = toUpstreamSource(video, info.basic_info.title, format);
     await validateRandomAccessSource(source, fetcher, signal);
@@ -103,10 +109,12 @@ export function createYoutubeJsAudioProvider(
 async function decipherFormat(
   format: Awaited<ReturnType<Innertube['getStreamingData']>>,
   innertube: Innertube,
+  signal?: AbortSignal,
 ): Promise<string> {
   try {
     return await format.decipher(innertube.session.player);
   } catch (error) {
+    throwIfAborted(signal);
     if (!isMissingJavascriptEvaluator(error)) {
       throw error;
     }
@@ -229,8 +237,53 @@ function sanitizeFileName(title: string): string {
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new YoutubeAudioError('REQUEST_ABORTED', 'The audio request was aborted.');
+    throw abortedError();
   }
+}
+
+function waitForCaller<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) {
+    return promise;
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(abortedError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+    // Close the narrow race between the initial check and listener setup.
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
+}
+
+function abortedError(): YoutubeAudioError {
+  return new YoutubeAudioError('REQUEST_ABORTED', 'The audio request was aborted.');
 }
 
 function rethrowYoutubeJsError(error: unknown, signal?: AbortSignal): never {

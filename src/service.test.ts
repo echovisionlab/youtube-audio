@@ -42,7 +42,7 @@ describe('youtube audio service', () => {
       _input: RequestInfo | URL,
       _init?: RequestInit,
     ) => rangeResponse([20, 30], 'bytes 1-2/4'));
-    const store = createMemoryYoutubeAudioSourceStore();
+    const store = createMemoryYoutubeAudioSourceStore({ now: () => NOW });
     const provider: YoutubeAudioProvider = {
       resolve: vi.fn(async () => upstream),
     };
@@ -113,7 +113,7 @@ describe('youtube audio service', () => {
       expiresAt: NOW + 60_000,
       headers: { Referer: 'https://www.youtube.com/' },
     });
-    const store = createMemoryYoutubeAudioSourceStore();
+    const store = createMemoryYoutubeAudioSourceStore({ now: () => NOW });
     const service = createService({
       provider: { resolve: async () => upstream },
       sourceStore: store,
@@ -156,7 +156,7 @@ describe('youtube audio service', () => {
 
   it('deletes expired sources before rejecting them', async () => {
     let current = NOW;
-    const store = createMemoryYoutubeAudioSourceStore();
+    const store = createMemoryYoutubeAudioSourceStore({ now: () => current });
     const service = createService({ now: () => current, sourceStore: store });
     const resolved = await service.resolve(request());
     current = resolved.expiresAt;
@@ -279,6 +279,62 @@ describe('youtube audio service', () => {
     })).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
   });
 
+  it('deletes a source persisted after its resolve request is cancelled', async () => {
+    const writeStarted = deferred<void>();
+    const finishWrite = deferred<void>();
+    const backingStore = createMemoryYoutubeAudioSourceStore({ now: () => NOW });
+    const deleteRecord = vi.fn(async (id: string) => backingStore.delete(id));
+    const sourceStore: YoutubeAudioSourceStore = {
+      delete: deleteRecord,
+      get: (id) => backingStore.get(id),
+      async put(record) {
+        writeStarted.resolve();
+        await finishWrite.promise;
+        await backingStore.put(record);
+      },
+    };
+    const controller = new AbortController();
+    const pending = createService({ sourceStore }).resolve({
+      ...request(),
+      signal: controller.signal,
+    });
+
+    await writeStarted.promise;
+    controller.abort();
+    finishWrite.resolve();
+    await expect(pending).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    expect(deleteRecord).toHaveBeenCalledWith('source-id-123');
+    await expect(backingStore.get('source-id-123')).resolves.toBeNull();
+  });
+
+  it('keeps REQUEST_ABORTED primary when post-write cleanup fails', async () => {
+    const writeStarted = deferred<void>();
+    const finishWrite = deferred<void>();
+    const backingStore = createMemoryYoutubeAudioSourceStore({ now: () => NOW });
+    const sourceStore: YoutubeAudioSourceStore = {
+      delete: vi.fn(async () => {
+        throw new Error('store cleanup failed');
+      }),
+      get: (id) => backingStore.get(id),
+      async put(record) {
+        writeStarted.resolve();
+        await finishWrite.promise;
+        await backingStore.put(record);
+      },
+    };
+    const controller = new AbortController();
+    const pending = createService({ sourceStore }).resolve({
+      ...request(),
+      signal: controller.signal,
+    });
+
+    await writeStarted.promise;
+    controller.abort();
+    finishWrite.resolve();
+    await expect(pending).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    expect(sourceStore.delete).toHaveBeenCalledWith('source-id-123');
+  });
+
   it.each([
     'bytes=0-',
     'bytes=-1',
@@ -332,15 +388,19 @@ describe('youtube audio service', () => {
   });
 
   it.each([
-    ['failed status', new Response(null, { status: 403 }), 'UPSTREAM_FAILURE'],
-    ['ignored range', new Response(new Uint8Array([1]), { status: 200 }), 'INVALID_UPSTREAM_RESPONSE'],
-    ['wrong range', rangeResponse([1], 'bytes 1-1/4'), 'INVALID_UPSTREAM_RESPONSE'],
-    ['empty body', new Response(null, {
-      headers: { 'Content-Range': 'bytes 0-0/4' },
-      status: 206,
-    }), 'INVALID_UPSTREAM_RESPONSE'],
-  ] as const)('rejects an upstream %s', async (_label, response, code) => {
-    const service = createService({ fetch: vi.fn(async () => response) });
+    ['failed status', 403, 'bytes 0-0/4', 'UPSTREAM_FAILURE', true],
+    ['ignored range', 200, 'bytes 0-0/4', 'INVALID_UPSTREAM_RESPONSE', true],
+    ['wrong range', 206, 'bytes 1-1/4', 'INVALID_UPSTREAM_RESPONSE', true],
+    ['empty body', 206, 'bytes 0-0/4', 'INVALID_UPSTREAM_RESPONSE', false],
+  ] as const)('rejects an upstream %s', async (_label, status, contentRange, code, hasBody) => {
+    const cancel = vi.fn();
+    const upstreamResponse = hasBody
+      ? trackedResponse(status, contentRange, cancel)
+      : new Response(null, {
+        headers: { 'Content-Range': contentRange },
+        status,
+      });
+    const service = createService({ fetch: vi.fn(async () => upstreamResponse) });
     const resolved = await service.resolve(request());
 
     await expect(service.read({
@@ -348,6 +408,46 @@ describe('youtube audio service', () => {
       sourceId: resolved.sourceId,
       subject: 'user-1',
     })).rejects.toMatchObject({ code });
+    if (hasBody) {
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('cancels the upstream body when aborted after response headers arrive', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const response = trackedResponse(206, 'bytes 0-0/4', cancel);
+    const service = createService({
+      fetch: vi.fn(async () => {
+        controller.abort();
+        return response;
+      }),
+    });
+    const resolved = await service.resolve(request());
+
+    await expect(service.read({
+      range: 'bytes=0-0',
+      signal: controller.signal,
+      sourceId: resolved.sourceId,
+      subject: 'user-1',
+    })).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a rejected-response error when cancelling its body also fails', async () => {
+    const cancel = vi.fn(async () => {
+      throw new Error('body cancellation failed');
+    });
+    const response = trackedResponse(403, 'bytes 0-0/4', cancel);
+    const service = createService({ fetch: vi.fn(async () => response) });
+    const resolved = await service.resolve(request());
+
+    await expect(service.read({
+      range: 'bytes=0-0',
+      sourceId: resolved.sourceId,
+      subject: 'user-1',
+    })).rejects.toMatchObject({ code: 'UPSTREAM_FAILURE' });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -376,7 +476,7 @@ function createService(
     makeSourceUrl: (id) => `https://example.test/api/tools/youtube-audio/${id}`,
     now: () => NOW,
     provider: { resolve: async () => source() },
-    sourceStore: createMemoryYoutubeAudioSourceStore(),
+    sourceStore: createMemoryYoutubeAudioSourceStore({ now: () => NOW }),
     ...overrides,
   });
 }
@@ -405,4 +505,30 @@ function rangeResponse(bytes: readonly number[], contentRange: string): Response
     headers: { 'Content-Range': contentRange },
     status: 206,
   });
+}
+
+function trackedResponse(
+  status: number,
+  contentRange: string,
+  cancel: (reason?: unknown) => void | Promise<void> = () => undefined,
+): Response {
+  return new Response(new ReadableStream({
+    cancel,
+    start(controller) {
+      controller.enqueue(new Uint8Array([1]));
+    },
+  }), {
+    headers: { 'Content-Range': contentRange },
+    status,
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
