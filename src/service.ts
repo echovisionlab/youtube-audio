@@ -66,6 +66,14 @@ export function createYoutubeAudioService(
       upstream: freezeUpstream(upstream),
     });
     await options.sourceStore.put(record);
+    if (request.signal?.aborted) {
+      try {
+        await options.sourceStore.delete(sourceId);
+      } catch {
+        // Cleanup is best-effort; cancellation remains the primary outcome.
+      }
+      throw new YoutubeAudioError('REQUEST_ABORTED', 'The audio request was aborted.');
+    }
 
     return Object.freeze({
       contentType: upstream.contentType,
@@ -117,24 +125,29 @@ export function createYoutubeAudioService(
         'The upstream audio range request failed.',
       );
     }
-    throwIfAborted(request.signal);
-    validateUpstreamRangeResponse(response, range, record.upstream.size);
-    if (response.body === null) {
-      throw new YoutubeAudioError(
-        'INVALID_UPSTREAM_RESPONSE',
-        'The upstream audio response has no body.',
-      );
+    try {
+      throwIfAborted(request.signal);
+      validateUpstreamRangeResponse(response, range, record.upstream.size);
+      if (response.body === null) {
+        throw new YoutubeAudioError(
+          'INVALID_UPSTREAM_RESPONSE',
+          'The upstream audio response has no body.',
+        );
+      }
+      return new Response(response.body, {
+        headers: {
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, no-store',
+          'Content-Length': String(range.end - range.start + 1),
+          'Content-Range': `bytes ${range.start}-${range.end}/${record.upstream.size}`,
+          'Content-Type': record.upstream.contentType,
+        },
+        status: 206,
+      });
+    } catch (error) {
+      await cancelResponseBody(response);
+      throw error;
     }
-    return new Response(response.body, {
-      headers: {
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'private, no-store',
-        'Content-Length': String(range.end - range.start + 1),
-        'Content-Range': `bytes ${range.start}-${range.end}/${record.upstream.size}`,
-        'Content-Type': record.upstream.contentType,
-      },
-      status: 206,
-    });
   }
 
   async function revokeSource(
@@ -150,6 +163,17 @@ export function createYoutubeAudioService(
       throw new YoutubeAudioError('UNAUTHORIZED', 'Audio source access is denied.');
     }
     await options.sourceStore.delete(sourceId);
+  }
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  if (response.body === null) {
+    return;
+  }
+  try {
+    await response.body.cancel();
+  } catch {
+    // Preserve the post-fetch validation or cancellation error.
   }
 }
 

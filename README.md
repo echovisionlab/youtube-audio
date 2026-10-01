@@ -37,6 +37,18 @@ private API can change independently; keep
 resolution failures observable and update this package rather than adding
 fallback scraping to the web application.
 
+Each caller's wait for YouTube.js client creation, video metadata, and URL
+deciphering ends promptly when its `AbortSignal` is aborted; shared client
+creation continues for other callers. The pinned YouTube.js APIs do not accept
+an abort signal for `Innertube.create()`, `getBasicInfo()`, or `decipher()`, so
+aborting a caller does not stop the underlying library work.
+
+The exported `createMemoryYoutubeAudioSourceStore()` is process-local. It prunes
+expired records during put, get, and delete operations; inject `now` when a
+deterministic clock is needed. It does not evict unexpired records, so use a
+shared store with an explicit capacity policy for long-lived multi-process
+services.
+
 ## Development
 
 ```sh
