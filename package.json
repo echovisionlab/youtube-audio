@@ -46,7 +46,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "youtubei.js": "18.0.0"
+    "youtubei.js": "18.1.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
