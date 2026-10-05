@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/echovisionlab/youtube-audio/compare/v0.1.6...v0.1.7) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** refresh YouTube audio package toolchain ([#22](https://github.com/echovisionlab/youtube-audio/issues/22)) ([802b5d4](https://github.com/echovisionlab/youtube-audio/commit/802b5d4a87d56015590338f11c998f7def8ee561))
+
 ## [0.1.6](https://github.com/echovisionlab/youtube-audio/compare/v0.1.5...v0.1.6) (2026-10-01)
 
 
