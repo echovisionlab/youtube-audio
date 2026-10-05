@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       youtubei.js:
-        specifier: 18.0.0
-        version: 18.0.0
+        specifier: 18.1.0
+        version: 18.1.0
     devDependencies:
       '@types/node':
         specifier: 24.19.1
@@ -647,8 +647,8 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  youtubei.js@18.0.0:
-    resolution: {integrity: sha512-7Tztl5QzNL4nIhiAxa4P/0C8cDDsUe0j4iaUeNiaA+ZfSe/l+HkHxXyoWlQXNW7IPi2n6AW23ysVMJLDh+AwWQ==}
+  youtubei.js@18.1.0:
+    resolution: {integrity: sha512-4Goo3ZeO6/kE8Mq67eC8Z9K1rijeqRwyKxf/YM4lqf8bB4r/s8JC0V3YFx7+l/AJR3LnAsulTsiIj+AFe0cduA==}
 
 snapshots:
 
@@ -1099,7 +1099,7 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  youtubei.js@18.0.0:
+  youtubei.js@18.1.0:
     dependencies:
       '@bufbuild/protobuf': 2.14.0
       fflate: 0.8.3
