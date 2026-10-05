@@ -1,3 +1,6 @@
 import type { YoutubeAudioSourceStore } from './contracts.js';
-export declare function createMemoryYoutubeAudioSourceStore(): YoutubeAudioSourceStore;
+export interface CreateMemoryYoutubeAudioSourceStoreOptions {
+    readonly now?: () => number;
+}
+export declare function createMemoryYoutubeAudioSourceStore(options?: CreateMemoryYoutubeAudioSourceStoreOptions): YoutubeAudioSourceStore;
 //# sourceMappingURL=memory-store.d.ts.map

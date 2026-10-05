@@ -15,7 +15,7 @@ export function createYoutubeJsAudioProvider(options = {}) {
             throwIfAborted(signal);
             let innertube;
             try {
-                innertube = await getInnertube();
+                innertube = await waitForCaller(getInnertube(), signal);
             }
             catch (error) {
                 rethrowYoutubeJsError(error, signal);
@@ -50,7 +50,7 @@ export function createYoutubeJsAudioProvider(options = {}) {
     }
     async function resolveWithClient(innertube, video, clientType, signal) {
         const infoOptions = videoInfoOptions(clientType);
-        const info = await innertube.getBasicInfo(video.videoId, infoOptions);
+        const info = await waitForCaller(innertube.getBasicInfo(video.videoId, infoOptions), signal);
         throwIfAborted(signal);
         if (info.basic_info.is_live || info.basic_info.is_upcoming) {
             throw new YoutubeAudioError('UNSUPPORTED_VIDEO', 'Live and upcoming YouTube videos are not supported.');
@@ -61,18 +61,19 @@ export function createYoutubeJsAudioProvider(options = {}) {
             quality: 'best',
             type: 'audio',
         });
-        format.url = await decipherFormat(format, innertube);
+        format.url = await waitForCaller(decipherFormat(format, innertube, signal), signal);
         throwIfAborted(signal);
         const source = toUpstreamSource(video, info.basic_info.title, format);
         await validateRandomAccessSource(source, fetcher, signal);
         return source;
     }
 }
-async function decipherFormat(format, innertube) {
+async function decipherFormat(format, innertube, signal) {
     try {
         return await format.decipher(innertube.session.player);
     }
     catch (error) {
+        throwIfAborted(signal);
         if (!isMissingJavascriptEvaluator(error)) {
             throw error;
         }
@@ -164,8 +165,46 @@ function sanitizeFileName(title) {
 }
 function throwIfAborted(signal) {
     if (signal?.aborted) {
-        throw new YoutubeAudioError('REQUEST_ABORTED', 'The audio request was aborted.');
+        throw abortedError();
     }
+}
+function waitForCaller(promise, signal) {
+    if (signal === undefined) {
+        return promise;
+    }
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => signal.removeEventListener('abort', onAbort);
+        const onAbort = () => {
+            settled = true;
+            cleanup();
+            reject(abortedError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then((value) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(value);
+        }, (error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            reject(error);
+        });
+        // Aborts before listener setup do not replay the event. Check only after
+        // attaching both promise handlers so a late rejection remains handled.
+        if (signal.aborted) {
+            onAbort();
+        }
+    });
+}
+function abortedError() {
+    return new YoutubeAudioError('REQUEST_ABORTED', 'The audio request was aborted.');
 }
 function rethrowYoutubeJsError(error, signal) {
     throwIfAborted(signal);
