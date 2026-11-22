@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/echovisionlab/youtube-audio/compare/v0.1.7...v0.1.8) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** update Vite and source-map-js ([#27](https://github.com/echovisionlab/youtube-audio/issues/27)) ([980115b](https://github.com/echovisionlab/youtube-audio/commit/980115b47547a617db480b1e91a2e1f4a282e47f))
+
 ## [0.1.7](https://github.com/echovisionlab/youtube-audio/compare/v0.1.6...v0.1.7) (2026-10-05)
 
 
