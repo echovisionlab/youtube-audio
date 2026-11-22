@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       youtubei.js:
-        specifier: 18.1.0
-        version: 18.1.0
+        specifier: 18.3.0
+        version: 18.3.0
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -755,8 +755,8 @@ packages:
     engines: {node: '>=20.11'}
     hasBin: true
 
-  youtubei.js@18.1.0:
-    resolution: {integrity: sha512-4Goo3ZeO6/kE8Mq67eC8Z9K1rijeqRwyKxf/YM4lqf8bB4r/s8JC0V3YFx7+l/AJR3LnAsulTsiIj+AFe0cduA==}
+  youtubei.js@18.3.0:
+    resolution: {integrity: sha512-6Cwn/U8a+OjpZp5XgqOjwy7Lk0RrGavm3I5zO7qZWO+fes20vhWMZnlUs0h/97SwjS0AsxAZrZ5bJ85XBJVWTw==}
 
 snapshots:
 
@@ -1137,7 +1137,7 @@ snapshots:
 
   why-is-node-running@3.2.1: {}
 
-  youtubei.js@18.1.0:
+  youtubei.js@18.3.0:
     dependencies:
       '@bufbuild/protobuf': 2.14.0
       fflate: 0.8.3
